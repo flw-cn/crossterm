@@ -4,6 +4,8 @@ use std::time::Duration;
 use super::sys::Waker;
 use super::InternalEvent;
 
+#[cfg(target_os = "macos")]
+pub(crate) mod macos;
 #[cfg(unix)]
 pub(crate) mod unix;
 #[cfg(windows)]
