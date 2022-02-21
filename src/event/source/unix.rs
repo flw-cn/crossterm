@@ -52,9 +52,6 @@ impl UnixInternalEventSource {
     }
 
     pub(crate) fn from_file_descriptor(input_fd: FileDesc) -> Result<Self> {
-        #[cfg(target_os = "macos")]
-        let mut poll = Poll::new()?;
-        #[cfg(not(target_os = "macos"))]
         let poll = Poll::new()?;
         let registry = poll.registry();
 

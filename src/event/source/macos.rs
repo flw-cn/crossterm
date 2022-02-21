@@ -1,6 +1,8 @@
 use libc::{fd_set, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
 use mio::{unix::SourceFd, Interest, Token};
-use std::{cmp, collections::HashMap, fmt, io, mem, os::unix::io::RawFd, ptr, time::Duration};
+use std::{
+    cmp, collections::HashMap, fmt, io, mem, os::unix::io::RawFd, ptr, sync::Mutex, time::Duration,
+};
 //use signal_hook_mio::v0_7::Signals;
 
 pub struct Poll {
@@ -8,7 +10,7 @@ pub struct Poll {
 }
 
 pub struct Registry {
-    selector: PosixSelect,
+    selector: Mutex<PosixSelect>,
 }
 
 struct PosixSelect {
@@ -37,16 +39,22 @@ impl HasRawFd for Signals {
 impl Poll {
     pub fn new() -> io::Result<Poll> {
         PosixSelect::new().map(|selector| Poll {
-            registry: Registry { selector },
+            registry: Registry {
+                selector: Mutex::new(selector),
+            },
         })
     }
 
-    pub fn registry(&mut self) -> &mut Registry {
-        &mut self.registry
+    pub fn registry(&self) -> &Registry {
+        &self.registry
     }
 
     pub fn poll(&mut self, events: &mut Events, timeout: Option<Duration>) -> io::Result<()> {
-        self.registry.selector.select(events, timeout)
+        self.registry
+            .selector
+            .lock()
+            .unwrap()
+            .select(events, timeout)
     }
 }
 
@@ -57,16 +65,14 @@ impl fmt::Debug for Poll {
 }
 
 impl Registry {
-    pub fn register<S>(
-        &mut self,
-        source: &mut S,
-        token: Token,
-        interests: Interest,
-    ) -> io::Result<()>
+    pub fn register<S>(&self, source: &mut S, token: Token, interests: Interest) -> io::Result<()>
     where
         S: HasRawFd + ?Sized,
     {
-        self.selector.register(source.raw_fd(), token, interests)
+        self.selector
+            .lock()
+            .unwrap()
+            .register(source.raw_fd(), token, interests)
     }
 
     pub fn reregister<S>(
@@ -78,14 +84,17 @@ impl Registry {
     where
         S: HasRawFd + ?Sized,
     {
-        self.selector.reregister(source.raw_fd(), token, interests)
+        self.selector
+            .lock()
+            .unwrap()
+            .reregister(source.raw_fd(), token, interests)
     }
 
     pub fn deregister<S>(&mut self, source: &mut S) -> io::Result<()>
     where
         S: HasRawFd + ?Sized,
     {
-        self.selector.deregister(source.raw_fd())
+        self.selector.lock().unwrap().deregister(source.raw_fd())
     }
 }
 
