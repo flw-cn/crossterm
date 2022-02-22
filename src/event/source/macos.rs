@@ -1,9 +1,15 @@
-use libc::{fd_set, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
-use mio::{unix::SourceFd, Interest, Token};
+use libc::{c_int, fd_set, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
+use mio::{net::UnixStream, unix::SourceFd, Interest, Token};
 use std::{
-    cmp, collections::HashMap, fmt, io, mem, os::unix::io::RawFd, ptr, sync::Mutex, time::Duration,
+    borrow::Borrow,
+    cmp,
+    collections::HashMap,
+    fmt, io, mem,
+    os::unix::io::{AsRawFd, RawFd},
+    ptr,
+    sync::Mutex,
+    time::Duration,
 };
-//use signal_hook_mio::v0_7::Signals;
 
 pub struct Poll {
     registry: Registry,
@@ -28,13 +34,11 @@ impl HasRawFd for SourceFd<'_> {
     }
 }
 
-/*
 impl HasRawFd for Signals {
     fn raw_fd(&self) -> RawFd {
-        self.0.raw_fd()
+        self.0.get_read().as_raw_fd()
     }
 }
-*/
 
 impl Poll {
     pub fn new() -> io::Result<Poll> {
@@ -145,10 +149,7 @@ impl PosixSelect {
         let ret = unsafe { libc::select(nfds, &mut rfds, &mut wfds, ptr::null_mut(), timeout) };
 
         if ret == -1 {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "fd already exists",
-            ));
+            return Err(io::Error::last_os_error());
         }
 
         events.clear();
@@ -237,5 +238,32 @@ impl Event {
     }
     pub fn fd(&self) -> RawFd {
         self.fd
+    }
+}
+
+use signal_hook::iterator::backend::{self, SignalDelivery};
+use signal_hook::iterator::exfiltrator::SignalOnly;
+
+pub struct Signals(SignalDelivery<UnixStream, SignalOnly>);
+
+pub use backend::Pending;
+
+impl Signals {
+    pub fn new<I, S>(signals: I) -> Result<Self, io::Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: Borrow<c_int>,
+    {
+        let (read, write) = UnixStream::pair()?;
+        let delivery = SignalDelivery::with_pipe(read, write, SignalOnly::default(), signals)?;
+        Ok(Self(delivery))
+    }
+
+    pub fn add_signal(&self, signal: c_int) -> Result<(), io::Error> {
+        self.0.handle().add_signal(signal)
+    }
+
+    pub fn pending(&mut self) -> Pending<SignalOnly> {
+        self.0.pending()
     }
 }

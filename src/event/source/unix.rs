@@ -3,11 +3,12 @@ use std::{collections::VecDeque, io, time::Duration};
 use mio::{unix::SourceFd, Interest, Token};
 
 #[cfg(target_os = "macos")]
-use super::macos::{Events, Poll};
+use super::macos::{Events, Poll, Signals};
 
 #[cfg(all(unix, not(target_os = "macos")))]
 use mio::{Events, Poll};
 
+#[cfg(not(target_os = "macos"))]
 use signal_hook_mio::v0_7::Signals;
 
 use crate::Result;
@@ -59,9 +60,8 @@ impl UnixInternalEventSource {
         let mut tty_ev = SourceFd(&tty_raw_fd);
         registry.register(&mut tty_ev, TTY_TOKEN, Interest::READABLE)?;
 
-        let signals = Signals::new(&[signal_hook::consts::SIGWINCH])?;
-        //let mut signals = Signals::new(&[signal_hook::consts::SIGWINCH])?;
-        //registry.register(&mut signals, SIGNAL_TOKEN, Interest::READABLE)?;
+        let mut signals = Signals::new(&[signal_hook::consts::SIGWINCH])?;
+        registry.register(&mut signals, SIGNAL_TOKEN, Interest::READABLE)?;
 
         #[cfg(feature = "event-stream")]
         let waker = Waker::new(registry, WAKE_TOKEN)?;
